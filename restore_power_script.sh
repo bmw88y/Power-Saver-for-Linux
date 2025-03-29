@@ -1,16 +1,19 @@
 #!/bin/bash
-
-echo "Restoring system default settings..."
+echo "Restoring system to normal settings..."
 
 # --- Enable all CPU cores ---
-echo "[CPU] Reactivating all cores..."
+echo "[CPU] Enabling all CPU cores..."
 for core in /sys/devices/system/cpu/cpu*/online; do
     echo 1 > $core 2>/dev/null
 done
 
-# Reset CPU frequency
+# Restore CPU frequency and turbo mode
 cpupower frequency-set -d 0 -u 0 --governor performance
 echo 0 > /sys/devices/system/cpu/intel_pstate/no_turbo
+
+# --- Re-enable KDE Power Manager ---
+echo "[Power Manager] Enabling KDE Power Management..."
+systemctl start powerdevil.service
 
 # --- Restore memory settings ---
 echo "[RAM] Restoring memory settings..."
@@ -18,15 +21,15 @@ echo "madvise" > /sys/kernel/mm/transparent_hugepage/enabled
 echo 60 > /proc/sys/vm/swappiness
 echo 100 > /proc/sys/vm/vfs_cache_pressure
 
-# --- Reset storage settings ---
-echo "[Storage] Enabling hard drives..."
+# --- Restore storage settings ---
+echo "[Storage] Re-enabling storage devices..."
 for disk in /dev/sd*; do
     hdparm -B 254 -S 0 $disk 2>/dev/null
     hdparm -M 254 $disk 2>/dev/null
 done
 
 # --- Enable network interfaces ---
-echo "[Network] Restarting network interfaces..."
+echo "[Network] Re-enabling network interfaces..."
 interfaces=($(ip -o link show | awk -F': ' '{print $2}'))
 for iface in "${interfaces[@]}"; do
     ip link set $iface up
@@ -41,19 +44,21 @@ done
 echo efi-framebuffer.0 > /sys/bus/platform/drivers/efi-framebuffer/bind 2>/dev/null
 
 # --- Enable USB ports ---
-echo "[USB] Reactivating USB ports..."
+echo "[USB] Re-enabling USB ports..."
 for host in /sys/bus/usb/devices/usb*/power/control; do
     echo "on" > $host
 done
 systemctl restart systemd-udevd.service
 
-# --- Restart services ---
-echo "[Services] Restarting all services..."
+# --- Restart stopped services ---
+echo "[Services] Restarting system services..."
 systemctl daemon-reload
-systemctl start $(systemctl list-units --type=service --all --no-legend | awk '{print $1}') 2>/dev/null
+systemctl restart bluetooth.service
+systemctl restart cups.service
+systemctl restart avahi-daemon.service
 
-# --- Remove kernel modifications ---
-echo "[Kernel] Restoring kernel settings..."
+# --- Remove kernel power-saving settings ---
+echo "[Kernel] Removing kernel power-saving settings..."
 kernel_params=(
     "consoleblank"
     "processor.max_cstate"
@@ -65,17 +70,17 @@ for param in "${kernel_params[@]}"; do
     grubby --update-kernel=ALL --remove-args="$param"
 done
 
-# --- Restore thermal management ---
-echo "[Thermal] Restoring thermal management..."
+# --- Restore fan and thermal settings ---
+echo "[Thermal] Restoring thermal settings..."
 for fan in /sys/class/hwmon/hwmon*/fan*_enable; do
     echo 4 > $fan 2>/dev/null  # Auto mode
 done
 
-# --- Disable power management tools ---
-echo "[Tools] Disabling power management tools..."
+# --- Re-enable power management tools ---
+echo "[Tools] Re-enabling power management tools..."
 powertop --auto-tune &>/dev/null
-tlp ac &>/dev/null
+tlp start &>/dev/null
 cpupower idle-set -D &>/dev/null
 
-echo "System settings successfully restored!"
-echo "Note: A restart may be required for some settings to take effect."
+echo "System restored to normal settings!"
+echo "Note: Some changes may require a reboot to fully apply."

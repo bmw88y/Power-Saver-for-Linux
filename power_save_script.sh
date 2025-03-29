@@ -1,44 +1,49 @@
 #!/bin/bash
+echo "Activating extreme power-saving mode..."
 
-echo "Activating extreme power-saving mode (1000x)..."
-
-# --- Advanced CPU control ---
-echo "[CPU] Maximizing power saving..."
-max_core=$(($(nproc)/2))  # Keep only half of the cores
-for core in $(seq $max_core $(($(nproc)-1))); do
-    echo 0 > /sys/devices/system/cpu/cpu$core/online
+# --- Limit CPU usage to 25% ---
+echo "[CPU] Limiting CPU usage to 25%..."
+total_cores=$(nproc)
+active_cores=$(($total_cores / 4))
+for core in /sys/devices/system/cpu/cpu*/online; do
+    echo 0 > $core 2>/dev/null
+done
+for core in $(seq 0 $(($active_cores - 1))); do
+    echo 1 > /sys/devices/system/cpu/cpu$core/online 2>/dev/null
 done
 
+# Reduce CPU frequency and disable turbo
 cpupower frequency-set -d 800MHz -u 800MHz --governor powersave
 echo 1 > /sys/devices/system/cpu/intel_pstate/no_turbo
 
-# --- Memory and swap management ---
+# --- Disable KDE Power Manager ---
+echo "[Power Manager] Disabling KDE Power Management..."
+systemctl stop powerdevil.service
+
+# --- Optimize RAM settings ---
 echo "[RAM] Optimizing memory management..."
 echo "force" > /sys/kernel/mm/transparent_hugepage/enabled
 echo 10 > /proc/sys/vm/swappiness
 echo 50 > /proc/sys/vm/vfs_cache_pressure
 
-# --- Storage power control ---
-echo "[Storage] Fully shutting down disks..."
+# --- Reduce power usage of storage devices ---
+echo "[Storage] Powering down disks..."
 for disk in /dev/sd*; do
     hdparm -B 1 -S 1 $disk 2>/dev/null
     hdparm -Y $disk 2>/dev/null
 done
 
-# --- Network power control ---
-echo "[Network] Fully disabling interfaces..."
+# --- Disable network interfaces ---
+echo "[Network] Disabling network interfaces..."
 interfaces=($(ip -o link show | awk -F': ' '{print $2}'))
 for iface in "${interfaces[@]}"; do
-    case $iface in
-        lo) continue;;
-        *)  ip link set $iface down
-            rfkill block ${iface}
-            ;;
-    esac
+    [[ "$iface" == "lo" ]] && continue
+    ip link set $iface down
+    rfkill block ${iface}
 done
 
-# --- Display power management ---
-echo "[Display] Turning off display completely..."
+# --- Turn off display ---
+echo "[Display] Turning off display..."
 vga_off() {
     for console in /sys/class/vtconsole/*; do
         echo 0 > $console/bind
@@ -47,27 +52,21 @@ vga_off() {
 }
 vga_off 2>/dev/null
 
-# --- USB and Bluetooth power management ---
-echo "[USB] Fully removing all devices..."
+# --- Disable USB ports ---
+echo "[USB] Disabling all USB devices..."
 for host in /sys/bus/usb/devices/usb*; do
     echo "0" > $host/authorized
     echo "suspend" > $host/power/level
 done
 
-# --- System service management ---
-echo "[Services] Stopping all non-essential services..."
-essential_services=(
-    "systemd-journald"
-    "dbus"
-    "systemd-logind"
-    "systemd-udevd"
-)
-for service in $(systemctl list-units --type=service --no-legend | awk '{print $1}'); do
-    [[ " ${essential_services[@]} " =~ " $service " ]] || systemctl stop $service
-done
+# --- Stop unnecessary services ---
+echo "[Services] Stopping non-essential services..."
+systemctl stop bluetooth.service
+systemctl stop cups.service
+systemctl stop avahi-daemon.service
 
-# --- Kernel-level power control ---
-echo "[Kernel] Applying kernel power settings..."
+# --- Apply kernel power-saving settings ---
+echo "[Kernel] Enabling extreme kernel power-saving settings..."
 kernel_params=(
     "consoleblank=5"
     "processor.max_cstate=5"
@@ -79,22 +78,20 @@ for param in "${kernel_params[@]}"; do
     grubby --update-kernel=ALL --args="$param"
 done
 
-# --- Extreme environmental control ---
-echo "[Env] External power optimizations..."
+# --- Stop fans and limit thermal settings ---
+echo "[Thermal] Reducing thermal limits..."
 for fan in /sys/class/hwmon/hwmon*/fan*_enable; do
     echo 0 > $fan 2>/dev/null
 done
-
 for temp in /sys/class/thermal/thermal_zone*/trip_point_*_temp; do
-    echo 1 > ${temp/_temp/_hyst}
     echo 5000 > $temp
 done
 
-# --- Advanced power management tools ---
-echo "[Tools] Running advanced power tools..."
+# --- Enable additional power-saving tools ---
+echo "[Tools] Enabling additional power-saving tools..."
 powertop --auto-tune &>/dev/null
 tlp bat &>/dev/null
 cpupower idle-set -E &>/dev/null
 
 echo "Extreme power-saving mode activated!"
-echo "Warning: This may affect system stability and performance!"
+echo "Warning: This may affect system stability and performance."
